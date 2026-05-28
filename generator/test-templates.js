@@ -50,13 +50,14 @@ function genElbow({ pipeSize, angle, bendR, stubLen }) {
   return p;
 }
 
-function genTee({ pipeSize, mainLen, branchLen, branchAngle }) {
+function genTee({ pipeSize, topLen, bottomLen, branchLen, branchAngle }) {
   const s = specFor(pipeSize); const rO = s.od/2, rI = s.id/2;
   const build = r => {
-    const main = Manifold.cylinder(mainLen, r, r, SEG, false)
-      .rotate([0, 90, 0]).translate([-mainLen/2, 0, 0]);
+    const mainTotal = topLen + bottomLen;
+    const main = Manifold.cylinder(mainTotal, r, r, SEG, false)
+      .translate([0, 0, -bottomLen]);
     const branch = Manifold.cylinder(branchLen, r, r, SEG, false)
-      .rotate([0, 90 - branchAngle, 0]);
+      .rotate([0, branchAngle, 0]);
     const u = Manifold.union([main, branch]);
     main.delete(); branch.delete();
     return u;
@@ -100,8 +101,10 @@ const cases = [
   ['elbow90-1½',   genElbow({ pipeSize: '150', angle: 90, bendR: 40, stubLen: 40 })],
   ['elbow45-1½',   genElbow({ pipeSize: '150', angle: 45, bendR: 40, stubLen: 40 })],
   ['elbow180-1½',  genElbow({ pipeSize: '150', angle: 180, bendR: 40, stubLen: 40 })],
-  ['tee90-1½',     genTee({ pipeSize: '150', mainLen: 140, branchLen: 80, branchAngle: 90 })],
-  ['tee45-1½',     genTee({ pipeSize: '150', mainLen: 140, branchLen: 80, branchAngle: 45 })],
+  ['tee90-1½',     genTee({ pipeSize: '150', topLen: 70, bottomLen: 70, branchLen: 80, branchAngle: 90 })],
+  ['tee45-1½',     genTee({ pipeSize: '150', topLen: 70, bottomLen: 70, branchLen: 80, branchAngle: 45 })],
+  ['tee135-1½',    genTee({ pipeSize: '150', topLen: 70, bottomLen: 70, branchLen: 80, branchAngle: 135 })],
+  ['tee-asym-1½',  genTee({ pipeSize: '150', topLen: 40, bottomLen: 160, branchLen: 80, branchAngle: 90 })],
   ['ptrap-1½',     genPtrap({ pipeSize: '150', bendR: 50, tailLen: 60, armLen: 150 })],
   ['ptrap-2"',     genPtrap({ pipeSize: '200', bendR: 60, tailLen: 60, armLen: 150 })],
 ];

@@ -297,31 +297,33 @@
 
       tee: {
         label: 'T-pipe',
-        description: 'Three-way junction — main run plus branch at custom angle. 90° = standard tee; <90° = sweep (sanitary) tee. All three ends slip into Fernco couplings.',
+        description: 'Three-way junction — vertical run (top/bottom independent) plus branch at custom angle. 90° = standard side-out tee; <90° branch sweeps up, >90° sweeps down (sanitary tee). All three ends slip into Fernco couplings.',
         params: [
           PIPE_SIZE_FIELD,
-          { id: 'mainLen',     label: 'Main length',   type: 'range', min: 80, max: 400, step: 5, default: 140, unit: 'mm' },
-          { id: 'branchLen',   label: 'Branch length', type: 'range', min: 40, max: 250, step: 5, default: 80,  unit: 'mm' },
-          { id: 'branchAngle', label: 'Branch angle',  type: 'range', min: 30, max: 90,  step: 5, default: 90,  unit: '°' },
+          { id: 'topLen',      label: 'Run length (top)',    type: 'range', min: 30, max: 300, step: 5, default: 70, unit: 'mm' },
+          { id: 'bottomLen',   label: 'Run length (bottom)', type: 'range', min: 30, max: 300, step: 5, default: 70, unit: 'mm' },
+          { id: 'branchLen',   label: 'Branch length',       type: 'range', min: 40, max: 250, step: 5, default: 80, unit: 'mm' },
+          { id: 'branchAngle', label: 'Branch angle',        type: 'range', min: 30, max: 150, step: 5, default: 90, unit: '°' },
         ],
         generate(params, { seg }) {
-          const { pipeSize, mainLen, branchLen, branchAngle } = params;
+          const { pipeSize, topLen, bottomLen, branchLen, branchAngle } = params;
           const spec = specFor(pipeSize);
           const rOuter = spec.od / 2;
           const rInner = spec.id / 2;
           const buildPath = (radius) => {
-            // Main: +Z cylinder rotated +90° around Y so axis is +X. Center on origin.
-            const main = Manifold.cylinder(mainLen, radius, radius, seg, false)
-              .rotate([0, 90, 0])
-              .translate([-mainLen / 2, 0, 0]);
+            // Main: vertical (+Z) cylinder spanning −bottomLen to +topLen
+            // through the origin (where the branch junction sits).
+            const mainTotal = topLen + bottomLen;
+            const main = Manifold.cylinder(mainTotal, radius, radius, seg, false)
+              .translate([0, 0, -bottomLen]);
 
-            // Branch: angle measured from main axis (+X). Direction in XZ plane:
-            //   (cos β, 0, sin β).
-            //   β=90° → branch perpendicular (+Z).
-            //   β=45° → sweep, leaning forward.
-            // A +Z cylinder rotated [0, 90-β, 0] around Y points exactly that way.
+            // Branch: +Z cylinder rotated `branchAngle` around the Y axis.
+            // Angle is measured from the +Z (main) direction:
+            //   90°  → branch perpendicular (along +X)
+            //   <90° → branch leans toward +Z (sweep up)
+            //   >90° → branch leans toward −Z (sweep down, sanitary tee)
             const branch = Manifold.cylinder(branchLen, radius, radius, seg, false)
-              .rotate([0, 90 - branchAngle, 0]);
+              .rotate([0, branchAngle, 0]);
 
             const u = Manifold.union([main, branch]);
             main.delete(); branch.delete();
