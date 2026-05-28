@@ -247,38 +247,39 @@
 
       elbow: {
         label: 'Elbow',
-        description: 'Custom-angle bend with a Fernco-compatible stub on each end. 5° to 180° — for angles catalog elbows don\'t cover. Stubs sized to grip standard Fernco couplings (≥30 mm).',
+        description: 'Custom-angle bend with independent inlet/outlet stubs. 5° to 180° — for angles catalog elbows don\'t cover. Each stub sized to grip a standard Fernco coupling (≥30 mm).',
         params: [
           PIPE_SIZE_FIELD,
-          { id: 'angle',   label: 'Bend angle',   type: 'range', min: 5,  max: 180, step: 1, default: 90, unit: '°' },
-          { id: 'bendR',   label: 'Bend radius',  type: 'range', min: 15, max: 150, step: 1, default: 40, unit: 'mm' },
-          { id: 'stubLen', label: 'Stub length',  type: 'range', min: 30, max: 100, step: 1, default: 40, unit: 'mm' },
+          { id: 'angle',      label: 'Bend angle',           type: 'range', min: 5,  max: 180, step: 1, default: 90, unit: '°' },
+          { id: 'bendR',      label: 'Bend radius',          type: 'range', min: 15, max: 150, step: 1, default: 40, unit: 'mm' },
+          { id: 'stubInLen',  label: 'Stub length (inlet)',  type: 'range', min: 30, max: 150, step: 1, default: 40, unit: 'mm' },
+          { id: 'stubOutLen', label: 'Stub length (outlet)', type: 'range', min: 30, max: 150, step: 1, default: 40, unit: 'mm' },
         ],
         generate(params, { seg }) {
-          const { pipeSize, angle, bendR, stubLen } = params;
+          const { pipeSize, angle, bendR, stubInLen, stubOutLen } = params;
           const spec = specFor(pipeSize);
           const rOuter = spec.od / 2;
           const rInner = spec.id / 2;
           const buildPath = (radius) => {
             // Bend: revolve a disk around the Z axis from θ=0 to θ=angle.
             // Centerline arc lies in the XY plane.
-            //   Cap1 at (bendR, 0, 0)               outward normal -Y
-            //   Cap2 at (bendR·cosα, bendR·sinα, 0) outward normal (-sinα, cosα, 0)
+            //   Cap1 (inlet)  at (bendR, 0, 0)               outward normal -Y
+            //   Cap2 (outlet) at (bendR·cosα, bendR·sinα, 0) outward normal (-sinα, cosα, 0)
             const bendDisk = CrossSection.circle(radius, seg).translate([bendR, 0]);
             const bend = Manifold.revolve(bendDisk, seg, angle);
 
-            // Stub1 on cap1: a +Z cylinder rotated to align with -Y, then placed.
+            // Inlet stub on cap1: a +Z cylinder rotated to align with -Y.
             //   rotate([90, 0, 0]) maps +Z → -Y.
-            const stub1 = Manifold.cylinder(stubLen, radius, radius, seg, false)
+            const stub1 = Manifold.cylinder(stubInLen, radius, radius, seg, false)
               .rotate([90, 0, 0])
               .translate([bendR, 0, 0]);
 
-            // Stub2 on cap2: a +Z cylinder aligned with (-sinα, cosα, 0).
+            // Outlet stub on cap2: a +Z cylinder aligned with (-sinα, cosα, 0).
             //   rotate([-90, 0, 0]) maps +Z → +Y.
             //   then rotate([0, 0, angle]) rotates +Y → (-sinα, cosα, 0).
             const cosA = Math.cos(angle * Math.PI / 180);
             const sinA = Math.sin(angle * Math.PI / 180);
-            const stub2 = Manifold.cylinder(stubLen, radius, radius, seg, false)
+            const stub2 = Manifold.cylinder(stubOutLen, radius, radius, seg, false)
               .rotate([-90, 0, 0])
               .rotate([0, 0, angle])
               .translate([bendR * cosA, bendR * sinA, 0]);

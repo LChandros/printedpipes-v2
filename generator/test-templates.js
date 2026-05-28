@@ -29,16 +29,16 @@ function genStraight({ pipeSize, length }) {
   return p;
 }
 
-function genElbow({ pipeSize, angle, bendR, stubLen }) {
+function genElbow({ pipeSize, angle, bendR, stubInLen, stubOutLen }) {
   const s = specFor(pipeSize); const rO = s.od/2, rI = s.id/2;
   const build = r => {
     const disk = CrossSection.circle(r, SEG).translate([bendR, 0]);
     const bend = Manifold.revolve(disk, SEG, angle);
-    const stub1 = Manifold.cylinder(stubLen, r, r, SEG, false)
+    const stub1 = Manifold.cylinder(stubInLen, r, r, SEG, false)
       .rotate([90, 0, 0]).translate([bendR, 0, 0]);
     const cosA = Math.cos(angle * Math.PI/180);
     const sinA = Math.sin(angle * Math.PI/180);
-    const stub2 = Manifold.cylinder(stubLen, r, r, SEG, false)
+    const stub2 = Manifold.cylinder(stubOutLen, r, r, SEG, false)
       .rotate([-90, 0, 0]).rotate([0, 0, angle])
       .translate([bendR*cosA, bendR*sinA, 0]);
     const u = Manifold.union([bend, stub1, stub2]);
@@ -98,9 +98,10 @@ function check(name, pipe) {
 
 const cases = [
   ['straight-1½',  genStraight({ pipeSize: '150', length: 120 })],
-  ['elbow90-1½',   genElbow({ pipeSize: '150', angle: 90, bendR: 40, stubLen: 40 })],
-  ['elbow45-1½',   genElbow({ pipeSize: '150', angle: 45, bendR: 40, stubLen: 40 })],
-  ['elbow180-1½',  genElbow({ pipeSize: '150', angle: 180, bendR: 40, stubLen: 40 })],
+  ['elbow90-1½',     genElbow({ pipeSize: '150', angle: 90, bendR: 40, stubInLen: 40, stubOutLen: 40 })],
+  ['elbow45-1½',     genElbow({ pipeSize: '150', angle: 45, bendR: 40, stubInLen: 40, stubOutLen: 40 })],
+  ['elbow180-1½',    genElbow({ pipeSize: '150', angle: 180, bendR: 40, stubInLen: 40, stubOutLen: 40 })],
+  ['elbow-asym-1½',  genElbow({ pipeSize: '150', angle: 90, bendR: 40, stubInLen: 100, stubOutLen: 30 })],
   ['tee90-1½',     genTee({ pipeSize: '150', topLen: 70, bottomLen: 70, branchLen: 80, branchAngle: 90 })],
   ['tee45-1½',     genTee({ pipeSize: '150', topLen: 70, bottomLen: 70, branchLen: 80, branchAngle: 45 })],
   ['tee135-1½',    genTee({ pipeSize: '150', topLen: 70, bottomLen: 70, branchLen: 80, branchAngle: 135 })],
