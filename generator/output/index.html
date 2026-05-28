@@ -15,12 +15,24 @@
       width: 340px; min-width: 340px;
       background: #0a0a0a; border-right: 1px solid #1f1f1f;
       padding: 18px 18px 14px;
-      display: flex; flex-direction: column; gap: 14px;
+      display: flex; flex-direction: column; gap: 12px;
       overflow-y: auto;
     }
     #panel h1 { font-size: 14px; color: #fff; margin: 0 0 4px;
                 letter-spacing: 0.5px; text-transform: uppercase; }
-    #panel .sub { font-size: 11px; color: #666; margin-bottom: 6px; }
+    #panel .sub { font-size: 11px; color: #666; margin-bottom: 4px; }
+
+    .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 4px; }
+    .tab {
+      background: #0e0e0e; color: #888; border: 1px solid #1a1a1a;
+      padding: 8px 4px; font-family: inherit; font-size: 10px;
+      letter-spacing: 0.5px; text-transform: uppercase; cursor: pointer;
+      border-radius: 3px; transition: all 100ms;
+    }
+    .tab:hover { color: #ccc; border-color: #2a2a2a; }
+    .tab.active { background: #1a3a6a; color: #fff; border-color: #2a5aaa; }
+
+    .tpl-desc { font-size: 10px; color: #666; margin: -2px 0 6px; line-height: 1.4; }
 
     .field { display: flex; flex-direction: column; gap: 4px; }
     .field-row { display: flex; justify-content: space-between; align-items: baseline; }
@@ -48,14 +60,14 @@
       border-radius: 3px;
     }
 
-    button {
+    button#download {
       background: #1a3a6a; color: #fff; border: 1px solid #2a5aaa;
       padding: 10px 14px; font-family: inherit; font-size: 12px;
       letter-spacing: 0.5px; text-transform: uppercase; cursor: pointer;
       border-radius: 3px; transition: background 100ms;
     }
-    button:hover { background: #2a5aaa; }
-    button:disabled { background: #333; border-color: #444; color: #777; cursor: wait; }
+    button#download:hover { background: #2a5aaa; }
+    button#download:disabled { background: #333; border-color: #444; color: #777; cursor: wait; }
 
     #stats {
       margin-top: auto; padding-top: 12px; border-top: 1px solid #1a1a1a;
@@ -82,49 +94,18 @@
   <div id="app">
     <div id="panel">
       <h1>printedpipes</h1>
-      <div class="sub">P-trap configurator · v0</div>
+      <div class="sub">DWV fitting configurator · v0</div>
 
-      <div class="field">
-        <div class="field-row">
-          <span class="field-label">Pipe size</span>
-        </div>
-        <select id="pipe-size">
-          <option value="38.1">1½" DWV (38.1 mm ID)</option>
-          <option value="31.75">1¼" DWV (31.75 mm ID)</option>
-        </select>
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-tpl="ptrap">P-trap</button>
+        <button class="tab" data-tpl="straight">Straight</button>
+        <button class="tab" data-tpl="elbow">Elbow</button>
+        <button class="tab" data-tpl="tee">T-pipe</button>
       </div>
 
-      <div class="field">
-        <div class="field-row">
-          <span class="field-label">Bend radius</span>
-          <span class="field-value" id="bend-r-val">50 mm</span>
-        </div>
-        <input type="range" id="bend-r" min="25" max="80" step="1" value="50">
-      </div>
+      <div class="tpl-desc" id="tpl-desc"></div>
 
-      <div class="field">
-        <div class="field-row">
-          <span class="field-label">Tail length</span>
-          <span class="field-value" id="tail-len-val">50 mm</span>
-        </div>
-        <input type="range" id="tail-len" min="20" max="200" step="2" value="50">
-      </div>
-
-      <div class="field">
-        <div class="field-row">
-          <span class="field-label">Trap arm length</span>
-          <span class="field-value" id="arm-len-val">150 mm</span>
-        </div>
-        <input type="range" id="arm-len" min="50" max="400" step="5" value="150">
-      </div>
-
-      <div class="field">
-        <div class="field-row">
-          <span class="field-label">Wall thickness</span>
-          <span class="field-value" id="wall-val">3.0 mm</span>
-        </div>
-        <input type="range" id="wall" min="1.5" max="5" step="0.5" value="3">
-      </div>
+      <div id="params"></div>
 
       <button id="download">Download STL</button>
 
@@ -161,64 +142,170 @@
     const wasm = await Module({ locateFile: () => './manifold.wasm' });
     wasm.setup();
     const { Manifold, CrossSection } = wasm;
-    document.getElementById('status').textContent = 'ready';
-    document.getElementById('status').className = 'ok';
 
-    // ─── Geometry generator ───────────────────────────────────────────────
-    // Composition (real P-trap topology, trap arm extending AWAY from tailpiece):
-    //   1. 180° U-bend in vertical (XZ) plane.
-    //      Inlet cap at (+bendR, 0, 0), facing +Z — tailpiece attaches here
-    //      Outlet cap at (-bendR, 0, 0), facing +Z — riser/elbow attaches here
-    //      Dip at (0, 0, -bendR).
-    //   2. Tailpiece: cylinder rising from inlet cap.
-    //   3. 90° elbow at the top of the outlet leg, turning from +Z to -X.
-    //      Cap1 at (-bendR, 0, 0) facing -Z (mates with U-bend outlet)
-    //      Cap2 at (-2·bendR, 0, +bendR) facing -X
-    //   4. Trap arm: cylinder extending in -X from elbow cap2, AWAY from
-    //      the tailpiece column at +bendR. No self-intersection.
-    function generatePTrap(params, { seg = 48 } = {}) {
-      const { pipeId, wall, bendR, tailLen, armLen } = params;
-      const rOuter = pipeId / 2 + wall;
-      const rInner = pipeId / 2;
+    // ─── Shared parameter definitions ─────────────────────────────────────
+    const PIPE_SIZES = [
+      { value: '38.1', label: '1½" DWV (38.1 mm ID)' },
+      { value: '31.75', label: '1¼" DWV (31.75 mm ID)' },
+      { value: '50.8',  label: '2" DWV (50.8 mm ID)' },
+      { value: '76.2',  label: '3" DWV (76.2 mm ID)' },
+    ];
+    const PIPE_SIZE_FIELD = { id: 'pipeId', label: 'Pipe size', type: 'select', options: PIPE_SIZES, default: '38.1' };
+    const WALL_FIELD     = { id: 'wall', label: 'Wall thickness', type: 'range',
+                             min: 1.5, max: 5, step: 0.5, default: 3, unit: 'mm', decimals: 1 };
 
-      const buildPath = (radius) => {
-        // 1) U-bend, 180° revolve, rotated so its plane is vertical (XZ) and
-        //    the bulge points downward (dip at -Z).
-        const ubendDisk = CrossSection.circle(radius, seg).translate([bendR, 0]);
-        const ubend = Manifold.revolve(ubendDisk, seg, 180).rotate([-90, 0, 0]);
+    // ─── Template registry ────────────────────────────────────────────────
+    const TEMPLATES = {
 
-        // 2) Tailpiece on the +X leg of the U.
-        const tail = Manifold.cylinder(tailLen, radius, radius, seg, false)
-          .translate([bendR, 0, 0]);
+      ptrap: {
+        label: 'P-trap',
+        description: 'Sink drain — integrated 180° U-bend + 90° elbow + trap arm. Trap arm extends opposite the tailpiece.',
+        params: [
+          PIPE_SIZE_FIELD,
+          { id: 'bendR',   label: 'Bend radius',     type: 'range', min: 25, max: 80,  step: 1, default: 50,  unit: 'mm' },
+          { id: 'tailLen', label: 'Tail length',     type: 'range', min: 20, max: 200, step: 2, default: 50,  unit: 'mm' },
+          { id: 'armLen',  label: 'Trap arm length', type: 'range', min: 50, max: 400, step: 5, default: 150, unit: 'mm' },
+          WALL_FIELD,
+        ],
+        generate(params, { seg }) {
+          const { pipeId, wall, bendR, tailLen, armLen } = params;
+          const rOuter = pipeId / 2 + wall;
+          const rInner = pipeId / 2;
+          const buildPath = (radius) => {
+            const ubendDisk = CrossSection.circle(radius, seg).translate([bendR, 0]);
+            const ubend = Manifold.revolve(ubendDisk, seg, 180).rotate([-90, 0, 0]);
+            const tail = Manifold.cylinder(tailLen, radius, radius, seg, false)
+              .translate([bendR, 0, 0]);
+            const elbowDisk = CrossSection.circle(radius, seg).translate([bendR, 0]);
+            const elbow = Manifold.revolve(elbowDisk, seg, 90)
+              .rotate([90, 0, 0])
+              .translate([-2 * bendR, 0, 0]);
+            const arm = Manifold.cylinder(armLen, radius, radius, seg, false)
+              .rotate([0, -90, 0])
+              .translate([-2 * bendR, 0, bendR]);
+            const u = Manifold.union([ubend, tail, elbow, arm]);
+            ubend.delete(); tail.delete(); elbow.delete(); arm.delete();
+            return u;
+          };
+          const outer = buildPath(rOuter);
+          const inner = buildPath(rInner);
+          const pipe = outer.subtract(inner);
+          outer.delete(); inner.delete();
+          return pipe;
+        },
+      },
 
-        // 3) 90° elbow. Canonical revolve(disk-at-(bendR,0), 90°) yields a
-        //    quarter-arc in XY with caps at (bendR, 0, 0) facing -Y and
-        //    (0, bendR, 0) facing -X. Rotating +90° around X maps +Y→+Z,
-        //    so cap1 ends up facing -Z (mating downward into U-bend outlet)
-        //    and cap2 ends up at (0, 0, bendR) still facing -X. Translate by
-        //    -2·bendR in X to land cap1 on the U-bend outlet at -bendR.
-        const elbowDisk = CrossSection.circle(radius, seg).translate([bendR, 0]);
-        const elbow = Manifold.revolve(elbowDisk, seg, 90)
-          .rotate([90, 0, 0])
-          .translate([-2 * bendR, 0, 0]);
+      straight: {
+        label: 'Straight',
+        description: 'Plain pipe section, cut to length. No socket flares yet — use as a fill-piece for routing problems.',
+        params: [
+          PIPE_SIZE_FIELD,
+          { id: 'length', label: 'Length', type: 'range', min: 20, max: 600, step: 5, default: 120, unit: 'mm' },
+          WALL_FIELD,
+        ],
+        generate(params, { seg }) {
+          const { pipeId, wall, length } = params;
+          const rOuter = pipeId / 2 + wall;
+          const rInner = pipeId / 2;
+          const outer = Manifold.cylinder(length, rOuter, rOuter, seg, false);
+          const inner = Manifold.cylinder(length, rInner, rInner, seg, false);
+          const pipe = outer.subtract(inner);
+          outer.delete(); inner.delete();
+          return pipe;
+        },
+      },
 
-        // 4) Trap arm: a +Z-axis cylinder rotated -90° around Y so it aligns
-        //    with -X, then translated to start at the elbow's exit cap.
-        const arm = Manifold.cylinder(armLen, radius, radius, seg, false)
-          .rotate([0, -90, 0])
-          .translate([-2 * bendR, 0, bendR]);
+      elbow: {
+        label: 'Elbow',
+        description: 'Custom-angle bend with a straight stub on each end. 1° to 180° — pick what catalog elbows don\'t cover.',
+        params: [
+          PIPE_SIZE_FIELD,
+          { id: 'angle',   label: 'Bend angle',   type: 'range', min: 5,  max: 180, step: 1, default: 90, unit: '°' },
+          { id: 'bendR',   label: 'Bend radius',  type: 'range', min: 15, max: 150, step: 1, default: 40, unit: 'mm' },
+          { id: 'stubLen', label: 'Stub length',  type: 'range', min: 5,  max: 100, step: 1, default: 25, unit: 'mm' },
+          WALL_FIELD,
+        ],
+        generate(params, { seg }) {
+          const { pipeId, wall, angle, bendR, stubLen } = params;
+          const rOuter = pipeId / 2 + wall;
+          const rInner = pipeId / 2;
+          const buildPath = (radius) => {
+            // Bend: revolve a disk around the Z axis from θ=0 to θ=angle.
+            // Centerline arc lies in the XY plane.
+            //   Cap1 at (bendR, 0, 0)               outward normal -Y
+            //   Cap2 at (bendR·cosα, bendR·sinα, 0) outward normal (-sinα, cosα, 0)
+            const bendDisk = CrossSection.circle(radius, seg).translate([bendR, 0]);
+            const bend = Manifold.revolve(bendDisk, seg, angle);
 
-        const u = Manifold.union([ubend, tail, elbow, arm]);
-        ubend.delete(); tail.delete(); elbow.delete(); arm.delete();
-        return u;
-      };
+            // Stub1 on cap1: a +Z cylinder rotated to align with -Y, then placed.
+            //   rotate([90, 0, 0]) maps +Z → -Y.
+            const stub1 = Manifold.cylinder(stubLen, radius, radius, seg, false)
+              .rotate([90, 0, 0])
+              .translate([bendR, 0, 0]);
 
-      const outer = buildPath(rOuter);
-      const inner = buildPath(rInner);
-      const pipe = outer.subtract(inner);
-      outer.delete(); inner.delete();
-      return pipe;
-    }
+            // Stub2 on cap2: a +Z cylinder aligned with (-sinα, cosα, 0).
+            //   rotate([-90, 0, 0]) maps +Z → +Y.
+            //   then rotate([0, 0, angle]) rotates +Y → (-sinα, cosα, 0).
+            const cosA = Math.cos(angle * Math.PI / 180);
+            const sinA = Math.sin(angle * Math.PI / 180);
+            const stub2 = Manifold.cylinder(stubLen, radius, radius, seg, false)
+              .rotate([-90, 0, 0])
+              .rotate([0, 0, angle])
+              .translate([bendR * cosA, bendR * sinA, 0]);
+
+            const u = Manifold.union([bend, stub1, stub2]);
+            bend.delete(); stub1.delete(); stub2.delete();
+            return u;
+          };
+          const outer = buildPath(rOuter);
+          const inner = buildPath(rInner);
+          const pipe = outer.subtract(inner);
+          outer.delete(); inner.delete();
+          return pipe;
+        },
+      },
+
+      tee: {
+        label: 'T-pipe',
+        description: 'Three-way junction — main run plus branch at custom angle. 90° = standard tee; <90° = sweep (sanitary) tee.',
+        params: [
+          PIPE_SIZE_FIELD,
+          { id: 'mainLen',     label: 'Main length',   type: 'range', min: 30, max: 400, step: 5, default: 120, unit: 'mm' },
+          { id: 'branchLen',   label: 'Branch length', type: 'range', min: 20, max: 250, step: 5, default: 70,  unit: 'mm' },
+          { id: 'branchAngle', label: 'Branch angle',  type: 'range', min: 30, max: 90,  step: 5, default: 90,  unit: '°' },
+          WALL_FIELD,
+        ],
+        generate(params, { seg }) {
+          const { pipeId, wall, mainLen, branchLen, branchAngle } = params;
+          const rOuter = pipeId / 2 + wall;
+          const rInner = pipeId / 2;
+          const buildPath = (radius) => {
+            // Main: +Z cylinder rotated +90° around Y so axis is +X. Center on origin.
+            const main = Manifold.cylinder(mainLen, radius, radius, seg, false)
+              .rotate([0, 90, 0])
+              .translate([-mainLen / 2, 0, 0]);
+
+            // Branch: angle measured from main axis (+X). Direction in XZ plane:
+            //   (cos β, 0, sin β).
+            //   β=90° → branch perpendicular (+Z).
+            //   β=45° → sweep, leaning forward.
+            // A +Z cylinder rotated [0, 90-β, 0] around Y points exactly that way.
+            const branch = Manifold.cylinder(branchLen, radius, radius, seg, false)
+              .rotate([0, 90 - branchAngle, 0]);
+
+            const u = Manifold.union([main, branch]);
+            main.delete(); branch.delete();
+            return u;
+          };
+          const outer = buildPath(rOuter);
+          const inner = buildPath(rInner);
+          const pipe = outer.subtract(inner);
+          outer.delete(); inner.delete();
+          return pipe;
+        },
+      },
+
+    };
 
     // ─── three.js scene ───────────────────────────────────────────────────
     const viewport = document.getElementById('viewport');
@@ -260,7 +347,6 @@
     });
 
     let currentMesh = null;
-    let lastMeshFromManifold = null; // keep mesh data for STL export
 
     function applyMeshToScene(mfldMesh) {
       const geom = new THREE.BufferGeometry();
@@ -273,8 +359,7 @@
         currentMesh.geometry.dispose();
       }
       currentMesh = new THREE.Mesh(geom, material);
-      // Manifold output is Z-up; three.js default scene is Y-up.
-      currentMesh.rotation.x = -Math.PI / 2;
+      currentMesh.rotation.x = -Math.PI / 2; // Manifold Z-up → three.js Y-up
       scene.add(currentMesh);
     }
 
@@ -288,13 +373,84 @@
       controls.update();
     }
 
-    let framedOnce = false;
-    function rebuild({ seg = 48, frameAfter = false } = {}) {
+    // ─── Param UI generation ──────────────────────────────────────────────
+    let activeTemplateId = 'ptrap';
+    const paramsContainer = document.getElementById('params');
+    const tplDescEl       = document.getElementById('tpl-desc');
+    const inputRefs       = {}; // current template's input elements, keyed by param.id
+
+    function buildParamUI(templateId) {
+      const tpl = TEMPLATES[templateId];
+      tplDescEl.textContent = tpl.description;
+      paramsContainer.innerHTML = '';
+      Object.keys(inputRefs).forEach(k => delete inputRefs[k]);
+
+      for (const p of tpl.params) {
+        const field = document.createElement('div');
+        field.className = 'field';
+
+        const row = document.createElement('div');
+        row.className = 'field-row';
+        const lbl = document.createElement('span');
+        lbl.className = 'field-label';
+        lbl.textContent = p.label;
+        row.appendChild(lbl);
+
+        if (p.type === 'range') {
+          const val = document.createElement('span');
+          val.className = 'field-value';
+          row.appendChild(val);
+          field.appendChild(row);
+
+          const input = document.createElement('input');
+          input.type = 'range';
+          input.min = p.min; input.max = p.max; input.step = p.step;
+          input.value = p.default;
+          input.addEventListener('input', () => {
+            const v = (p.decimals != null) ? parseFloat(input.value).toFixed(p.decimals) : input.value;
+            val.textContent = v + ' ' + p.unit;
+            scheduleRebuild();
+          });
+          const v0 = (p.decimals != null) ? parseFloat(input.value).toFixed(p.decimals) : input.value;
+          val.textContent = v0 + ' ' + p.unit;
+          field.appendChild(input);
+          inputRefs[p.id] = { type: 'range', el: input };
+
+        } else if (p.type === 'select') {
+          field.appendChild(row);
+          const sel = document.createElement('select');
+          for (const opt of p.options) {
+            const o = document.createElement('option');
+            o.value = opt.value; o.textContent = opt.label;
+            sel.appendChild(o);
+          }
+          sel.value = p.default;
+          sel.addEventListener('change', scheduleRebuild);
+          field.appendChild(sel);
+          inputRefs[p.id] = { type: 'select', el: sel };
+        }
+
+        paramsContainer.appendChild(field);
+      }
+    }
+
+    function readParams() {
+      const out = {};
+      for (const [id, ref] of Object.entries(inputRefs)) {
+        out[id] = parseFloat(ref.el.value);
+      }
+      return out;
+    }
+
+    // ─── Build pipeline ───────────────────────────────────────────────────
+    let framedOnceForTemplate = {};
+    function rebuild({ seg = 48, frame = false } = {}) {
       const t0 = performance.now();
       const params = readParams();
+      const tpl = TEMPLATES[activeTemplateId];
       let pipe;
       try {
-        pipe = generatePTrap(params, { seg });
+        pipe = tpl.generate(params, { seg });
       } catch (e) {
         console.error(e);
         setStatus('GEOM ERROR — see console', 'busy');
@@ -303,22 +459,21 @@
       const mfldMesh = pipe.getMesh();
       const stats = {
         tri: pipe.numTri(),
-        vol: pipe.volume() / 1000, // mm³ → cm³
-        sa:  pipe.surfaceArea() / 100, // mm² → cm²
+        vol: pipe.volume() / 1000,
+        sa:  pipe.surfaceArea() / 100,
         bbox: pipe.boundingBox(),
         genus: pipe.genus(),
       };
       pipe.delete();
-      lastMeshFromManifold = mfldMesh;
 
       applyMeshToScene(mfldMesh);
       const elapsed = performance.now() - t0;
       updateStats(stats, elapsed);
 
-      if (frameAfter || !framedOnce) {
+      if (frame || !framedOnceForTemplate[activeTemplateId]) {
         const box = new THREE.Box3().setFromObject(currentMesh);
         frameCamera(box);
-        framedOnce = true;
+        framedOnceForTemplate[activeTemplateId] = true;
       }
     }
 
@@ -342,25 +497,6 @@
       el.className = cls;
     }
 
-    // ─── Inputs ───────────────────────────────────────────────────────────
-    const inputs = {
-      pipeId: document.getElementById('pipe-size'),
-      bendR:  document.getElementById('bend-r'),
-      tailLen:document.getElementById('tail-len'),
-      armLen: document.getElementById('arm-len'),
-      wall:   document.getElementById('wall'),
-    };
-
-    function readParams() {
-      return {
-        pipeId:  parseFloat(inputs.pipeId.value),
-        bendR:   parseFloat(inputs.bendR.value),
-        tailLen: parseFloat(inputs.tailLen.value),
-        armLen:  parseFloat(inputs.armLen.value),
-        wall:    parseFloat(inputs.wall.value),
-      };
-    }
-
     function debounce(fn, ms) {
       let t = null;
       return (...args) => {
@@ -368,34 +504,32 @@
         t = setTimeout(() => fn(...args), ms);
       };
     }
-
-    function attachRange(input, valueEl, fmt = v => v + ' mm') {
-      const sync = () => valueEl.textContent = fmt(input.value);
-      input.addEventListener('input', sync);
-      sync();
-    }
-    attachRange(inputs.bendR,   document.getElementById('bend-r-val'));
-    attachRange(inputs.tailLen, document.getElementById('tail-len-val'));
-    attachRange(inputs.armLen,  document.getElementById('arm-len-val'));
-    attachRange(inputs.wall,    document.getElementById('wall-val'),
-                v => parseFloat(v).toFixed(1) + ' mm');
-
-    const debouncedRebuild = debounce(() => {
+    const scheduleRebuild = debounce(() => {
       setStatus('rendering…', 'busy');
-      // Defer to next frame so the busy label paints before Manifold blocks.
       requestAnimationFrame(() => {
         rebuild({ seg: 48 });
         setStatus('ready', 'ok');
       });
     }, 120);
 
-    Object.values(inputs).forEach(el => {
-      el.addEventListener('input', debouncedRebuild);
-      el.addEventListener('change', debouncedRebuild);
+    // ─── Tab switching ────────────────────────────────────────────────────
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const id = tab.dataset.tpl;
+        if (id === activeTemplateId) return;
+        document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+        activeTemplateId = id;
+        buildParamUI(id);
+        setStatus('rendering…', 'busy');
+        requestAnimationFrame(() => {
+          rebuild({ seg: 48, frame: true });
+          setStatus('ready', 'ok');
+        });
+      });
     });
 
-    // ─── STL export ───────────────────────────────────────────────────────
-    function writeBinarySTL(mesh) {
+    // ─── STL writer + download ────────────────────────────────────────────
+    function writeBinarySTL(mesh, headerText) {
       const { vertProperties, triVerts, numProp } = mesh;
       const stride = numProp || 3;
       const triCount = triVerts.length / 3;
@@ -404,8 +538,8 @@
       const dv = new DataView(buf);
       const u8 = new Uint8Array(buf);
 
-      const headerText = 'printedpipes configurator';
-      for (let i = 0; i < headerText.length && i < 80; i++) u8[i] = headerText.charCodeAt(i);
+      const ht = headerText.slice(0, 80);
+      for (let i = 0; i < ht.length; i++) u8[i] = ht.charCodeAt(i);
       dv.setUint32(80, triCount, true);
 
       let off = 84;
@@ -437,16 +571,18 @@
 
     document.getElementById('download').addEventListener('click', () => {
       setStatus('generating high-quality STL…', 'busy');
-      // Build at higher segment count for the final download.
       requestAnimationFrame(() => {
         const params = readParams();
-        const pipe = generatePTrap(params, { seg: 96 });
+        const tpl = TEMPLATES[activeTemplateId];
+        const pipe = tpl.generate(params, { seg: 96 });
         const mesh = pipe.getMesh();
         pipe.delete();
 
-        const blob = writeBinarySTL(mesh);
-        const p = params;
-        const name = `ptrap_${p.pipeId.toFixed(1)}mm_bend${p.bendR}_arm${p.armLen}_tail${p.tailLen}.stl`;
+        const blob = writeBinarySTL(mesh, `printedpipes ${activeTemplateId}`);
+        const paramSlug = Object.entries(params)
+          .map(([k, v]) => `${k}${typeof v === 'number' ? v.toFixed(0) : v}`)
+          .join('_');
+        const name = `${activeTemplateId}_${paramSlug}.stl`;
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = name;
@@ -470,9 +606,10 @@
       renderer.render(scene, camera);
     })();
 
-    // ─── Initial render ───────────────────────────────────────────────────
-    rebuild({ seg: 48, frameAfter: true });
+    // ─── Boot ─────────────────────────────────────────────────────────────
     setStatus('ready', 'ok');
+    buildParamUI(activeTemplateId);
+    rebuild({ seg: 48, frame: true });
   </script>
 </body>
 </html>
