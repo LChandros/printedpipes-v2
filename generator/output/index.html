@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>printedpipes — configurator</title>
+  <style>
+    * { box-sizing: border-box; }
+    body, html { margin: 0; padding: 0; background: #050505; color: #ccc;
+                 font-family: ui-monospace, Menlo, Consolas, monospace;
+                 height: 100%; overflow: hidden; }
+
+    #app { display: flex; height: 100vh; }
+
+    #panel {
+      width: 340px; min-width: 340px;
+      background: #0a0a0a; border-right: 1px solid #1f1f1f;
+      padding: 18px 18px 14px;
+      display: flex; flex-direction: column; gap: 14px;
+      overflow-y: auto;
+    }
+    #panel h1 { font-size: 14px; color: #fff; margin: 0 0 4px;
+                letter-spacing: 0.5px; text-transform: uppercase; }
+    #panel .sub { font-size: 11px; color: #666; margin-bottom: 6px; }
+
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field-row { display: flex; justify-content: space-between; align-items: baseline; }
+    .field-label { font-size: 11px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
+    .field-value { font-size: 12px; color: #fff; font-variant-numeric: tabular-nums; }
+
+    input[type="range"] {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 4px; background: #1c1c1c; border-radius: 2px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #88aaff; cursor: pointer;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #88aaff; cursor: pointer; border: none;
+    }
+
+    select {
+      background: #141414; color: #ddd; border: 1px solid #2a2a2a;
+      padding: 6px 8px; font-family: inherit; font-size: 12px;
+      border-radius: 3px;
+    }
+
+    button {
+      background: #1a3a6a; color: #fff; border: 1px solid #2a5aaa;
+      padding: 10px 14px; font-family: inherit; font-size: 12px;
+      letter-spacing: 0.5px; text-transform: uppercase; cursor: pointer;
+      border-radius: 3px; transition: background 100ms;
+    }
+    button:hover { background: #2a5aaa; }
+    button:disabled { background: #333; border-color: #444; color: #777; cursor: wait; }
+
+    #stats {
+      margin-top: auto; padding-top: 12px; border-top: 1px solid #1a1a1a;
+      font-size: 10px; color: #555; line-height: 1.6;
+    }
+    #stats b { color: #888; font-weight: normal; }
+
+    #viewport { flex: 1; position: relative; }
+    #overlay {
+      position: absolute; bottom: 10px; right: 14px;
+      font-size: 10px; color: #555; pointer-events: none;
+      text-align: right; line-height: 1.4;
+    }
+    #status {
+      position: absolute; top: 10px; right: 14px;
+      font-size: 11px; color: #ffb84a;
+      pointer-events: none;
+    }
+    #status.ok { color: #4a8; }
+    #status.busy { color: #ffb84a; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="panel">
+      <h1>printedpipes</h1>
+      <div class="sub">P-trap configurator · v0</div>
+
+      <div class="field">
+        <div class="field-row">
+          <span class="field-label">Pipe size</span>
+        </div>
+        <select id="pipe-size">
+          <option value="38.1">1½" DWV (38.1 mm ID)</option>
+          <option value="31.75">1¼" DWV (31.75 mm ID)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <div class="field-row">
+          <span class="field-label">Bend radius</span>
+          <span class="field-value" id="bend-r-val">50 mm</span>
+        </div>
+        <input type="range" id="bend-r" min="25" max="80" step="1" value="50">
+      </div>
+
+      <div class="field">
+        <div class="field-row">
+          <span class="field-label">Tail length</span>
+          <span class="field-value" id="tail-len-val">50 mm</span>
+        </div>
+        <input type="range" id="tail-len" min="20" max="200" step="2" value="50">
+      </div>
+
+      <div class="field">
+        <div class="field-row">
+          <span class="field-label">Trap arm length</span>
+          <span class="field-value" id="arm-len-val">150 mm</span>
+        </div>
+        <input type="range" id="arm-len" min="50" max="400" step="5" value="150">
+      </div>
+
+      <div class="field">
+        <div class="field-row">
+          <span class="field-label">Wall thickness</span>
+          <span class="field-value" id="wall-val">3.0 mm</span>
+        </div>
+        <input type="range" id="wall" min="1.5" max="5" step="0.5" value="3">
+      </div>
+
+      <button id="download">Download STL</button>
+
+      <div id="stats">
+        <div><b>Triangles:</b> <span id="stat-tri">—</span></div>
+        <div><b>Pipe volume:</b> <span id="stat-vol">—</span> cm³</div>
+        <div><b>Surface area:</b> <span id="stat-sa">—</span> cm²</div>
+        <div><b>Extents (X·Y·Z):</b> <span id="stat-ext">—</span> mm</div>
+        <div><b>Genus:</b> <span id="stat-genus">—</span></div>
+        <div><b>Build time:</b> <span id="stat-time">—</span> ms</div>
+      </div>
+    </div>
+
+    <div id="viewport">
+      <div id="status" class="busy">loading Manifold WASM…</div>
+      <div id="overlay">drag = rotate · scroll = zoom · right-drag = pan</div>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ─── Manifold WASM init ───────────────────────────────────────────────
+    const Module = (await import('./manifold.js')).default;
+    const wasm = await Module({ locateFile: () => './manifold.wasm' });
+    wasm.setup();
+    const { Manifold, CrossSection } = wasm;
+    document.getElementById('status').textContent = 'ready';
+    document.getElementById('status').className = 'ok';
+
+    // ─── Geometry generator ───────────────────────────────────────────────
+    // Composition (real P-trap topology, trap arm extending AWAY from tailpiece):
+    //   1. 180° U-bend in vertical (XZ) plane.
+    //      Inlet cap at (+bendR, 0, 0), facing +Z — tailpiece attaches here
+    //      Outlet cap at (-bendR, 0, 0), facing +Z — riser/elbow attaches here
+    //      Dip at (0, 0, -bendR).
+    //   2. Tailpiece: cylinder rising from inlet cap.
+    //   3. 90° elbow at the top of the outlet leg, turning from +Z to -X.
+    //      Cap1 at (-bendR, 0, 0) facing -Z (mates with U-bend outlet)
+    //      Cap2 at (-2·bendR, 0, +bendR) facing -X
+    //   4. Trap arm: cylinder extending in -X from elbow cap2, AWAY from
+    //      the tailpiece column at +bendR. No self-intersection.
+    function generatePTrap(params, { seg = 48 } = {}) {
+      const { pipeId, wall, bendR, tailLen, armLen } = params;
+      const rOuter = pipeId / 2 + wall;
+      const rInner = pipeId / 2;
+
+      const buildPath = (radius) => {
+        // 1) U-bend, 180° revolve, rotated so its plane is vertical (XZ) and
+        //    the bulge points downward (dip at -Z).
+        const ubendDisk = CrossSection.circle(radius, seg).translate([bendR, 0]);
+        const ubend = Manifold.revolve(ubendDisk, seg, 180).rotate([-90, 0, 0]);
+
+        // 2) Tailpiece on the +X leg of the U.
+        const tail = Manifold.cylinder(tailLen, radius, radius, seg, false)
+          .translate([bendR, 0, 0]);
+
+        // 3) 90° elbow. Canonical revolve(disk-at-(bendR,0), 90°) yields a
+        //    quarter-arc in XY with caps at (bendR, 0, 0) facing -Y and
+        //    (0, bendR, 0) facing -X. Rotating +90° around X maps +Y→+Z,
+        //    so cap1 ends up facing -Z (mating downward into U-bend outlet)
+        //    and cap2 ends up at (0, 0, bendR) still facing -X. Translate by
+        //    -2·bendR in X to land cap1 on the U-bend outlet at -bendR.
+        const elbowDisk = CrossSection.circle(radius, seg).translate([bendR, 0]);
+        const elbow = Manifold.revolve(elbowDisk, seg, 90)
+          .rotate([90, 0, 0])
+          .translate([-2 * bendR, 0, 0]);
+
+        // 4) Trap arm: a +Z-axis cylinder rotated -90° around Y so it aligns
+        //    with -X, then translated to start at the elbow's exit cap.
+        const arm = Manifold.cylinder(armLen, radius, radius, seg, false)
+          .rotate([0, -90, 0])
+          .translate([-2 * bendR, 0, bendR]);
+
+        const u = Manifold.union([ubend, tail, elbow, arm]);
+        ubend.delete(); tail.delete(); elbow.delete(); arm.delete();
+        return u;
+      };
+
+      const outer = buildPath(rOuter);
+      const inner = buildPath(rInner);
+      const pipe = outer.subtract(inner);
+      outer.delete(); inner.delete();
+      return pipe;
+    }
+
+    // ─── three.js scene ───────────────────────────────────────────────────
+    const viewport = document.getElementById('viewport');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x050505);
+
+    const camera = new THREE.PerspectiveCamera(45, viewport.clientWidth / viewport.clientHeight, 1, 5000);
+    camera.position.set(280, 200, 320);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+    viewport.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    scene.add(new THREE.AmbientLight(0x404040, 1.6));
+    const key = new THREE.DirectionalLight(0xffffff, 1.3);
+    key.position.set(200, 350, 220);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0xa0b8ff, 0.45);
+    fill.position.set(-220, -120, -180);
+    scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xffe0a0, 0.25);
+    rim.position.set(80, 50, -300);
+    scene.add(rim);
+
+    const grid = new THREE.GridHelper(500, 50, 0x1c1c1c, 0x101010);
+    scene.add(grid);
+    const axes = new THREE.AxesHelper(40);
+    scene.add(axes);
+
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xe6e6e6,
+      roughness: 0.5,
+      metalness: 0.0,
+      side: THREE.DoubleSide,
+    });
+
+    let currentMesh = null;
+    let lastMeshFromManifold = null; // keep mesh data for STL export
+
+    function applyMeshToScene(mfldMesh) {
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.BufferAttribute(mfldMesh.vertProperties, mfldMesh.numProp || 3));
+      geom.setIndex(new THREE.BufferAttribute(mfldMesh.triVerts, 1));
+      geom.computeVertexNormals();
+
+      if (currentMesh) {
+        scene.remove(currentMesh);
+        currentMesh.geometry.dispose();
+      }
+      currentMesh = new THREE.Mesh(geom, material);
+      // Manifold output is Z-up; three.js default scene is Y-up.
+      currentMesh.rotation.x = -Math.PI / 2;
+      scene.add(currentMesh);
+    }
+
+    function frameCamera(box) {
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      controls.target.copy(center);
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const dist = maxDim * 1.6;
+      camera.position.set(center.x + dist * 0.85, center.y + dist * 0.55, center.z + dist * 0.95);
+      controls.update();
+    }
+
+    let framedOnce = false;
+    function rebuild({ seg = 48, frameAfter = false } = {}) {
+      const t0 = performance.now();
+      const params = readParams();
+      let pipe;
+      try {
+        pipe = generatePTrap(params, { seg });
+      } catch (e) {
+        console.error(e);
+        setStatus('GEOM ERROR — see console', 'busy');
+        return;
+      }
+      const mfldMesh = pipe.getMesh();
+      const stats = {
+        tri: pipe.numTri(),
+        vol: pipe.volume() / 1000, // mm³ → cm³
+        sa:  pipe.surfaceArea() / 100, // mm² → cm²
+        bbox: pipe.boundingBox(),
+        genus: pipe.genus(),
+      };
+      pipe.delete();
+      lastMeshFromManifold = mfldMesh;
+
+      applyMeshToScene(mfldMesh);
+      const elapsed = performance.now() - t0;
+      updateStats(stats, elapsed);
+
+      if (frameAfter || !framedOnce) {
+        const box = new THREE.Box3().setFromObject(currentMesh);
+        frameCamera(box);
+        framedOnce = true;
+      }
+    }
+
+    function updateStats(s, elapsed) {
+      document.getElementById('stat-tri').textContent = s.tri.toLocaleString();
+      document.getElementById('stat-vol').textContent = s.vol.toFixed(1);
+      document.getElementById('stat-sa').textContent  = s.sa.toFixed(1);
+      const ex = [
+        s.bbox.max[0] - s.bbox.min[0],
+        s.bbox.max[1] - s.bbox.min[1],
+        s.bbox.max[2] - s.bbox.min[2],
+      ];
+      document.getElementById('stat-ext').textContent = ex.map(v => v.toFixed(0)).join(' · ');
+      document.getElementById('stat-genus').textContent = s.genus;
+      document.getElementById('stat-time').textContent = elapsed.toFixed(0);
+    }
+
+    function setStatus(text, cls) {
+      const el = document.getElementById('status');
+      el.textContent = text;
+      el.className = cls;
+    }
+
+    // ─── Inputs ───────────────────────────────────────────────────────────
+    const inputs = {
+      pipeId: document.getElementById('pipe-size'),
+      bendR:  document.getElementById('bend-r'),
+      tailLen:document.getElementById('tail-len'),
+      armLen: document.getElementById('arm-len'),
+      wall:   document.getElementById('wall'),
+    };
+
+    function readParams() {
+      return {
+        pipeId:  parseFloat(inputs.pipeId.value),
+        bendR:   parseFloat(inputs.bendR.value),
+        tailLen: parseFloat(inputs.tailLen.value),
+        armLen:  parseFloat(inputs.armLen.value),
+        wall:    parseFloat(inputs.wall.value),
+      };
+    }
+
+    function debounce(fn, ms) {
+      let t = null;
+      return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), ms);
+      };
+    }
+
+    function attachRange(input, valueEl, fmt = v => v + ' mm') {
+      const sync = () => valueEl.textContent = fmt(input.value);
+      input.addEventListener('input', sync);
+      sync();
+    }
+    attachRange(inputs.bendR,   document.getElementById('bend-r-val'));
+    attachRange(inputs.tailLen, document.getElementById('tail-len-val'));
+    attachRange(inputs.armLen,  document.getElementById('arm-len-val'));
+    attachRange(inputs.wall,    document.getElementById('wall-val'),
+                v => parseFloat(v).toFixed(1) + ' mm');
+
+    const debouncedRebuild = debounce(() => {
+      setStatus('rendering…', 'busy');
+      // Defer to next frame so the busy label paints before Manifold blocks.
+      requestAnimationFrame(() => {
+        rebuild({ seg: 48 });
+        setStatus('ready', 'ok');
+      });
+    }, 120);
+
+    Object.values(inputs).forEach(el => {
+      el.addEventListener('input', debouncedRebuild);
+      el.addEventListener('change', debouncedRebuild);
+    });
+
+    // ─── STL export ───────────────────────────────────────────────────────
+    function writeBinarySTL(mesh) {
+      const { vertProperties, triVerts, numProp } = mesh;
+      const stride = numProp || 3;
+      const triCount = triVerts.length / 3;
+      const bytes = 84 + triCount * 50;
+      const buf = new ArrayBuffer(bytes);
+      const dv = new DataView(buf);
+      const u8 = new Uint8Array(buf);
+
+      const headerText = 'printedpipes configurator';
+      for (let i = 0; i < headerText.length && i < 80; i++) u8[i] = headerText.charCodeAt(i);
+      dv.setUint32(80, triCount, true);
+
+      let off = 84;
+      const v = vertProperties;
+      for (let i = 0; i < triCount; i++) {
+        const i0 = triVerts[i*3 + 0] * stride;
+        const i1 = triVerts[i*3 + 1] * stride;
+        const i2 = triVerts[i*3 + 2] * stride;
+        const ax = v[i0], ay = v[i0+1], az = v[i0+2];
+        const bx = v[i1], by = v[i1+1], bz = v[i1+2];
+        const cx = v[i2], cy = v[i2+1], cz = v[i2+2];
+        const ux = bx-ax, uy = by-ay, uz = bz-az;
+        const wx = cx-ax, wy = cy-ay, wz = cz-az;
+        let nx = uy*wz - uz*wy;
+        let ny = uz*wx - ux*wz;
+        let nz = ux*wy - uy*wx;
+        const len = Math.hypot(nx, ny, nz) || 1;
+        nx /= len; ny /= len; nz /= len;
+
+        dv.setFloat32(off,    nx, true); dv.setFloat32(off+4,  ny, true); dv.setFloat32(off+8,  nz, true);
+        dv.setFloat32(off+12, ax, true); dv.setFloat32(off+16, ay, true); dv.setFloat32(off+20, az, true);
+        dv.setFloat32(off+24, bx, true); dv.setFloat32(off+28, by, true); dv.setFloat32(off+32, bz, true);
+        dv.setFloat32(off+36, cx, true); dv.setFloat32(off+40, cy, true); dv.setFloat32(off+44, cz, true);
+        dv.setUint16(off+48,  0,  true);
+        off += 50;
+      }
+      return new Blob([buf], { type: 'model/stl' });
+    }
+
+    document.getElementById('download').addEventListener('click', () => {
+      setStatus('generating high-quality STL…', 'busy');
+      // Build at higher segment count for the final download.
+      requestAnimationFrame(() => {
+        const params = readParams();
+        const pipe = generatePTrap(params, { seg: 96 });
+        const mesh = pipe.getMesh();
+        pipe.delete();
+
+        const blob = writeBinarySTL(mesh);
+        const p = params;
+        const name = `ptrap_${p.pipeId.toFixed(1)}mm_bend${p.bendR}_arm${p.armLen}_tail${p.tailLen}.stl`;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = name;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setStatus('ready', 'ok');
+      });
+    });
+
+    // ─── Resize & loop ────────────────────────────────────────────────────
+    window.addEventListener('resize', () => {
+      camera.aspect = viewport.clientWidth / viewport.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+    });
+
+    (function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    })();
+
+    // ─── Initial render ───────────────────────────────────────────────────
+    rebuild({ seg: 48, frameAfter: true });
+    setStatus('ready', 'ok');
+  </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+node_modules/
+tmp/
+
+# Generated STL artifacts — regenerate via the configurator or `node ptrap.js`
+generator/output/*.stl
+generator/output/*.3mf
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor noise
+.vscode/
+.idea/
+*.swp
