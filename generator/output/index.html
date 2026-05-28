@@ -69,6 +69,18 @@
     button#download:hover { background: #2a5aaa; }
     button#download:disabled { background: #333; border-color: #444; color: #777; cursor: wait; }
 
+    #hardware {
+      margin-top: 4px; padding: 10px 12px;
+      background: #0e1014; border: 1px solid #1a2030; border-radius: 4px;
+      font-size: 11px; color: #aab; line-height: 1.5;
+    }
+    #hardware .hw-label {
+      font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase;
+      color: #66c; margin-bottom: 4px;
+    }
+    #hardware .hw-body b { color: #fff; font-weight: normal; }
+    #hardware .hw-body .qty { color: #88aaff; font-variant-numeric: tabular-nums; }
+
     #stats {
       margin-top: auto; padding-top: 12px; border-top: 1px solid #1a1a1a;
       font-size: 10px; color: #555; line-height: 1.6;
@@ -109,6 +121,11 @@
 
       <button id="download">Download STL</button>
 
+      <div id="hardware">
+        <div class="hw-label">Hardware needed</div>
+        <div id="hw-body" class="hw-body">—</div>
+      </div>
+
       <div id="stats">
         <div><b>Triangles:</b> <span id="stat-tri">—</span></div>
         <div><b>Pipe volume:</b> <span id="stat-vol">—</span> cm³</div>
@@ -143,34 +160,47 @@
     wasm.setup();
     const { Manifold, CrossSection } = wasm;
 
-    // ─── Shared parameter definitions ─────────────────────────────────────
-    const PIPE_SIZES = [
-      { value: '38.1', label: '1½" DWV (38.1 mm ID)' },
-      { value: '31.75', label: '1¼" DWV (31.75 mm ID)' },
-      { value: '50.8',  label: '2" DWV (50.8 mm ID)' },
-      { value: '76.2',  label: '3" DWV (76.2 mm ID)' },
-    ];
-    const PIPE_SIZE_FIELD = { id: 'pipeId', label: 'Pipe size', type: 'select', options: PIPE_SIZES, default: '38.1' };
-    const WALL_FIELD     = { id: 'wall', label: 'Wall thickness', type: 'range',
-                             min: 1.5, max: 5, step: 0.5, default: 3, unit: 'mm', decimals: 1 };
+    // ─── Pipe specs (Schedule 40 PVC DWV) ─────────────────────────────────
+    // Fittings are sized to slip into standard Fernco rubber couplings — OD
+    // matches Schedule 40 PVC pipe so a 1056-series Fernco grips both our
+    // printed stub and the customer's existing pipe.
+    //
+    // Wall thickness comes from spec, not from a user knob: at standard
+    // dimensions ASA prints plenty strong for non-pressurized DWV.
+    const PIPE_SPECS = {
+      '125': { nominal: '1¼"', od: 42.16, id: 35.05, fernco: '1056-125' },
+      '150': { nominal: '1½"', od: 48.26, id: 40.89, fernco: '1056-150' },
+      '200': { nominal: '2"',  od: 60.33, id: 52.50, fernco: '1056-22'  },
+      '300': { nominal: '3"',  od: 88.90, id: 77.93, fernco: '1056-33'  },
+    };
+    function specFor(key) { return PIPE_SPECS[String(key)]; }
+    const PIPE_SIZE_FIELD = {
+      id: 'pipeSize',
+      label: 'Pipe size',
+      type: 'select',
+      options: Object.entries(PIPE_SPECS).map(([k, s]) =>
+        ({ value: k, label: `${s.nominal} Sch 40 (OD ${s.od.toFixed(1)} · ID ${s.id.toFixed(1)})` })
+      ),
+      default: '150',
+    };
 
     // ─── Template registry ────────────────────────────────────────────────
     const TEMPLATES = {
 
       ptrap: {
         label: 'P-trap',
-        description: 'Sink drain — integrated 180° U-bend + 90° elbow + trap arm. Trap arm extends opposite the tailpiece.',
+        description: 'Sink drain — integrated 180° U-bend + 90° elbow + trap arm. Trap arm extends opposite the tailpiece. Tailpiece and arm are sized for Fernco coupling on each end.',
         params: [
           PIPE_SIZE_FIELD,
           { id: 'bendR',   label: 'Bend radius',     type: 'range', min: 25, max: 80,  step: 1, default: 50,  unit: 'mm' },
-          { id: 'tailLen', label: 'Tail length',     type: 'range', min: 20, max: 200, step: 2, default: 50,  unit: 'mm' },
-          { id: 'armLen',  label: 'Trap arm length', type: 'range', min: 50, max: 400, step: 5, default: 150, unit: 'mm' },
-          WALL_FIELD,
+          { id: 'tailLen', label: 'Tail length',     type: 'range', min: 40, max: 200, step: 2, default: 60,  unit: 'mm' },
+          { id: 'armLen',  label: 'Trap arm length', type: 'range', min: 60, max: 400, step: 5, default: 150, unit: 'mm' },
         ],
         generate(params, { seg }) {
-          const { pipeId, wall, bendR, tailLen, armLen } = params;
-          const rOuter = pipeId / 2 + wall;
-          const rInner = pipeId / 2;
+          const { pipeSize, bendR, tailLen, armLen } = params;
+          const spec = specFor(pipeSize);
+          const rOuter = spec.od / 2;
+          const rInner = spec.id / 2;
           const buildPath = (radius) => {
             const ubendDisk = CrossSection.circle(radius, seg).translate([bendR, 0]);
             const ubend = Manifold.revolve(ubendDisk, seg, 180).rotate([-90, 0, 0]);
@@ -197,16 +227,16 @@
 
       straight: {
         label: 'Straight',
-        description: 'Plain pipe section, cut to length. No socket flares yet — use as a fill-piece for routing problems.',
+        description: 'Plain pipe section, cut to length. Both ends slip into Fernco couplings — useful as a length-adjustment piece between two fixed fittings.',
         params: [
           PIPE_SIZE_FIELD,
-          { id: 'length', label: 'Length', type: 'range', min: 20, max: 600, step: 5, default: 120, unit: 'mm' },
-          WALL_FIELD,
+          { id: 'length', label: 'Length', type: 'range', min: 60, max: 600, step: 5, default: 120, unit: 'mm' },
         ],
         generate(params, { seg }) {
-          const { pipeId, wall, length } = params;
-          const rOuter = pipeId / 2 + wall;
-          const rInner = pipeId / 2;
+          const { pipeSize, length } = params;
+          const spec = specFor(pipeSize);
+          const rOuter = spec.od / 2;
+          const rInner = spec.id / 2;
           const outer = Manifold.cylinder(length, rOuter, rOuter, seg, false);
           const inner = Manifold.cylinder(length, rInner, rInner, seg, false);
           const pipe = outer.subtract(inner);
@@ -217,18 +247,18 @@
 
       elbow: {
         label: 'Elbow',
-        description: 'Custom-angle bend with a straight stub on each end. 1° to 180° — pick what catalog elbows don\'t cover.',
+        description: 'Custom-angle bend with a Fernco-compatible stub on each end. 5° to 180° — for angles catalog elbows don\'t cover. Stubs sized to grip standard Fernco couplings (≥30 mm).',
         params: [
           PIPE_SIZE_FIELD,
           { id: 'angle',   label: 'Bend angle',   type: 'range', min: 5,  max: 180, step: 1, default: 90, unit: '°' },
           { id: 'bendR',   label: 'Bend radius',  type: 'range', min: 15, max: 150, step: 1, default: 40, unit: 'mm' },
-          { id: 'stubLen', label: 'Stub length',  type: 'range', min: 5,  max: 100, step: 1, default: 25, unit: 'mm' },
-          WALL_FIELD,
+          { id: 'stubLen', label: 'Stub length',  type: 'range', min: 30, max: 100, step: 1, default: 40, unit: 'mm' },
         ],
         generate(params, { seg }) {
-          const { pipeId, wall, angle, bendR, stubLen } = params;
-          const rOuter = pipeId / 2 + wall;
-          const rInner = pipeId / 2;
+          const { pipeSize, angle, bendR, stubLen } = params;
+          const spec = specFor(pipeSize);
+          const rOuter = spec.od / 2;
+          const rInner = spec.id / 2;
           const buildPath = (radius) => {
             // Bend: revolve a disk around the Z axis from θ=0 to θ=angle.
             // Centerline arc lies in the XY plane.
@@ -267,18 +297,18 @@
 
       tee: {
         label: 'T-pipe',
-        description: 'Three-way junction — main run plus branch at custom angle. 90° = standard tee; <90° = sweep (sanitary) tee.',
+        description: 'Three-way junction — main run plus branch at custom angle. 90° = standard tee; <90° = sweep (sanitary) tee. All three ends slip into Fernco couplings.',
         params: [
           PIPE_SIZE_FIELD,
-          { id: 'mainLen',     label: 'Main length',   type: 'range', min: 30, max: 400, step: 5, default: 120, unit: 'mm' },
-          { id: 'branchLen',   label: 'Branch length', type: 'range', min: 20, max: 250, step: 5, default: 70,  unit: 'mm' },
+          { id: 'mainLen',     label: 'Main length',   type: 'range', min: 80, max: 400, step: 5, default: 140, unit: 'mm' },
+          { id: 'branchLen',   label: 'Branch length', type: 'range', min: 40, max: 250, step: 5, default: 80,  unit: 'mm' },
           { id: 'branchAngle', label: 'Branch angle',  type: 'range', min: 30, max: 90,  step: 5, default: 90,  unit: '°' },
-          WALL_FIELD,
         ],
         generate(params, { seg }) {
-          const { pipeId, wall, mainLen, branchLen, branchAngle } = params;
-          const rOuter = pipeId / 2 + wall;
-          const rInner = pipeId / 2;
+          const { pipeSize, mainLen, branchLen, branchAngle } = params;
+          const spec = specFor(pipeSize);
+          const rOuter = spec.od / 2;
+          const rInner = spec.id / 2;
           const buildPath = (radius) => {
             // Main: +Z cylinder rotated +90° around Y so axis is +X. Center on origin.
             const main = Manifold.cylinder(mainLen, radius, radius, seg, false)
@@ -469,12 +499,31 @@
       applyMeshToScene(mfldMesh);
       const elapsed = performance.now() - t0;
       updateStats(stats, elapsed);
+      updateHardware();
 
       if (frame || !framedOnceForTemplate[activeTemplateId]) {
         const box = new THREE.Box3().setFromObject(currentMesh);
         frameCamera(box);
         framedOnceForTemplate[activeTemplateId] = true;
       }
+    }
+
+    // How many open ends each template exposes for Fernco joining.
+    const FERNCO_ENDS = { ptrap: 2, straight: 2, elbow: 2, tee: 3 };
+
+    function updateHardware() {
+      const params = readParams();
+      const spec = specFor(params.pipeSize);
+      const ends = FERNCO_ENDS[activeTemplateId] || 2;
+      const tpl = TEMPLATES[activeTemplateId];
+      const hw = document.getElementById('hw-body');
+      hw.innerHTML =
+        `<span class="qty">${ends}×</span> <b>Fernco ${spec.fernco}</b> ` +
+        `(${spec.nominal} flexible coupling)<br>` +
+        `<span style="color:#667;font-size:10px">` +
+        `Stub OD ${spec.od.toFixed(1)} mm matches Sch 40 PVC. ` +
+        `Slip Fernco over our stub and existing pipe, tighten both clamps.` +
+        `</span>`;
     }
 
     function updateStats(s, elapsed) {

@@ -8,14 +8,31 @@ The product positioning is **obstacle bypass for residential plumbing retrofits*
 
 v0. Four fitting templates implemented, all generating watertight STLs via in-browser Manifold-3D WASM CSG. Configurator runs entirely client-side — no server-side render.
 
+## Join strategy: Fernco couplings
+
+Printed ASA isn't chemically compatible with PVC solvent cement — standard PVC primer/glue won't form a real molecular weld with ASA, only a weak surface bond that fails under thermal cycling. To keep the joints reliable, the configurator sizes every fitting's open ends to **standard Schedule 40 PVC OD** so they slip into **Fernco flexible couplings** (rubber sleeve + stainless band clamps). Code-recognized for DWV in most jurisdictions. Plumber-familiar. No chemistry questions.
+
+The configurator displays the recommended Fernco part number for the selected pipe size:
+
+| Pipe size | OD (mm) | ID (mm) | Fernco part |
+|-----------|---------|---------|-------------|
+| 1¼" Sch 40 | 42.16   | 35.05   | 1056-125    |
+| 1½" Sch 40 | 48.26   | 40.89   | 1056-150    |
+| 2" Sch 40  | 60.33   | 52.50   | 1056-22     |
+| 3" Sch 40  | 88.90   | 77.93   | 1056-33     |
+
+Minimum stub length per Fernco end is 30 mm (Fernco rubber sleeve requires ~1¼" of pipe to grip on each side).
+
 ### Templates available
 
 | Template  | Use case | Parameters |
 |-----------|----------|------------|
-| **P-trap** | Sink drain — integrated U-bend + 90° elbow + trap arm | pipe size, bend radius, tail length, arm length, wall |
-| **Straight** | Plain pipe section, cut to length | pipe size, length, wall |
-| **Elbow** | Bend at any angle from 5° to 180° with stubs | pipe size, bend angle, bend radius, stub length, wall |
-| **T-pipe** | Three-way junction; 90° = standard tee, <90° = sweep tee | pipe size, main length, branch length, branch angle, wall |
+| **P-trap** | Sink drain — integrated U-bend + 90° elbow + trap arm | pipe size, bend radius, tail length, arm length |
+| **Straight** | Plain pipe section, cut to length | pipe size, length |
+| **Elbow** | Bend at any angle from 5° to 180° with stubs | pipe size, bend angle, bend radius, stub length |
+| **T-pipe** | Three-way junction; 90° = standard tee, <90° = sweep tee | pipe size, main length, branch length, branch angle |
+
+Wall thickness is spec-determined (Schedule 40 wall for the selected nominal size) rather than a user knob — at standard PVC dimensions, ASA prints plenty strong for non-pressurized DWV, and varying wall would break Fernco-compatibility on the stubs.
 
 ### What's built
 
@@ -34,7 +51,10 @@ v0. Four fitting templates implemented, all generating watertight STLs via in-br
 
 ### Known anomalies
 
-- 45° elbow reports genus = 3 (expected 1). Other angles (90°, 180°) report genus 1 correctly. Manifold still guarantees watertightness, so the STL should print; topology artifact worth chasing.
+- **45° elbow** reports genus = 2 (expected 1). 90° and 180° elbows are clean.
+- **45° T-pipe** reports genus = 3 (expected 2 — a 3-ended hollow tube is genus 2). 90° T-pipe is clean.
+
+Manifold still guarantees watertightness on these, so the STLs should print. Probably a topology artifact from how non-cardinal-angle stub disks meet the bend/main caps. Worth chasing before customers download.
 
 ## Architecture
 
